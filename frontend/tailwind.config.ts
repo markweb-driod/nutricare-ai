@@ -22,8 +22,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        heading: ["var(--font-manrope)", "sans-serif"],
-        body: ["var(--font-inter)", "sans-serif"],
+        heading: ["Manrope", "Inter", "sans-serif"],
+        body: ["Inter", "sans-serif"],
       },
       borderRadius: {
         card: "18px",

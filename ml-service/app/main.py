@@ -3,6 +3,9 @@ NutriCare AI - Machine Learning Microservice API
 FastAPI Application serving Random Forest predictions, explainability, and metrics.
 """
 
+import json
+import os
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.schemas import (
@@ -71,8 +74,18 @@ def get_model_info():
             "preparation_method", "medication_risk_category"
         ],
         "target_classes": predictor.classes_,
-        "clinical_guideline": "ADA Standards of Care 2026 / FAO-INFOODS 2019"
+        "clinical_guideline": "ADA Standards of Care 2026 / FAO-INFOODS 2019",
+        "metrics": _load_metrics(),
     }
+
+
+def _load_metrics():
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "metrics.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
 
 
 if __name__ == "__main__":

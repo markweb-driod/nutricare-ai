@@ -59,13 +59,20 @@ If the target machine has Docker Desktop installed:
 
 ## 🔑 One-Click Demo Accounts
 
-On the login page (`http://localhost:3000`), click any of the top autofill demo buttons:
+On the login page (`http://localhost:3000`), click a demo button or sign in with these credentials. The workspace opens based on the account's role, and passwords are checked by the API.
 
 | Persona | Demo Email | Demo Password | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Patient Demo** | `alex.adeyemi@example.com` | `patient123` | Patient dashboard, meal planner, ML recommendations, seeded food diary & glucose logs |
-| **Clinician Demo** | `dr.balogun@nutricare.clinic` | `clinician123` | Patient directory, compliance review, meal plan approval locking |
-| **Admin Demo** | `admin@nutricare.ai` | `admin123` | ML Ops dashboard, Random Forest model metrics (95.83% accuracy), safety rule logs |
+| **Patient Demo** | `alex.adeyemi@example.com` | `patient123` | Dashboard, recommendations, meal planner, food diary, glucose log, reminders, profile |
+| **Patient (2)** | `grace.okafor@example.com` | `patient123` | Insulin patient with a fish allergy, CKD and a pending plan review |
+| **Clinician Demo** | `dr.balogun@nutricare.clinic` | `clinician123` | Patient directory, targets, review queue (approve / request changes), reports |
+| **Admin Demo** | `admin@nutricare.ai` | `admin123` | System health, live ML metrics, safety rule matrix, audit log |
+
+New patients can sign up with **Create patient account** (a 6-step intake). Their plan starts as *Pending review* until a clinician approves it.
+
+**Data storage:** state is kept in `backend/storage/app_state.json` (git-ignored). It is created from seed data on the first request. To reset the demo data, stop the services, delete that file, and start again.
+
+**Sharing publicly:** `.\tunnel.ps1` starts the stack if needed and prints a temporary public HTTPS URL (Cloudflare quick tunnel). The PHP API is proxied through Next.js at `/api/v1`, so one URL serves the whole app.
 
 ---
 
@@ -84,7 +91,12 @@ Run the backend test suite anytime to verify clinical calculations and allergen 
 ```powershell
 php backend/tests/BackendTest.php
 ```
-*Expected: 5 of 5 tests passing (Allergens, Yield Math, ADA Rule of 15, Reminders, ML recommendations).*
+*Expected: 7 of 7 tests passing (Allergens, Yield Math, ADA Rule of 15, Reminders, ML recommendations, Auth tokens, Seed state).*
+
+To regenerate the model and the metrics shown on the admin ML page (`ml-service/models/metrics.json`):
+```powershell
+cd ml-service/training; python train.py
+```
 
 ---
 

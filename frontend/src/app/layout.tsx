@@ -4,14 +4,11 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'NutriCare AI — Diabetic Dietary Recommendation & Reminder System',
   description: 'Evidence-based individualized nutritional planning, Random Forest ML recommendations, and scheduled reminders for diabetes management.',
-  manifest: '/manifest.json',
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: '#16835D',
 };
 

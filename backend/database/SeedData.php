@@ -154,6 +154,139 @@ class SeedData
         ];
     }
 
+    /**
+     * Demo login accounts. Passwords are hashed at seed time; plain values are
+     * documented in README/start scripts for demo use only.
+     */
+    public static function getDemoUsers(): array
+    {
+        return [
+            ['id' => 'usr-pat-001', 'email' => 'alex.adeyemi@example.com', 'name' => 'Alex Adeyemi', 'role' => 'patient', 'patient_id' => 'pat-001', 'password' => 'patient123'],
+            ['id' => 'usr-pat-002', 'email' => 'grace.okafor@example.com', 'name' => 'Grace Okafor', 'role' => 'patient', 'patient_id' => 'pat-002', 'password' => 'patient123'],
+            ['id' => 'usr-cln-001', 'email' => 'dr.balogun@nutricare.clinic', 'name' => 'Dr. Kemi Balogun', 'role' => 'clinician', 'title' => 'RD, CDE', 'password' => 'clinician123'],
+            ['id' => 'usr-adm-001', 'email' => 'admin@nutricare.ai', 'name' => 'System Administrator', 'role' => 'admin', 'password' => 'admin123'],
+        ];
+    }
+
+    public static function defaultReminders(array $times = []): array
+    {
+        $times = array_merge(['breakfast' => '07:30', 'lunch' => '12:30', 'dinner' => '19:00'], $times);
+        $out = [];
+        foreach ($times as $meal => $time) {
+            $out[] = ['id' => 'rem-' . bin2hex(random_bytes(4)), 'meal_type' => $meal, 'time' => $time, 'is_enabled' => true, 'snoozed_until' => null];
+        }
+        return $out;
+    }
+
+    /** Builds a complete v2 state document with timestamps relative to today. */
+    public static function buildInitialState(): array
+    {
+        $today = date('Y-m-d');
+        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $recipes = self::getVerifiedRecipes();
+        $byId = [];
+        foreach ($recipes as $r) {
+            $byId[$r['id']] = $r;
+        }
+        $log = function (string $recipeId, string $mealType, string $at) use ($byId) {
+            $r = $byId[$recipeId];
+            return [
+                'id' => 'log-' . bin2hex(random_bytes(4)),
+                'recipe_id' => $recipeId,
+                'title' => $r['title'],
+                'meal_type' => $mealType,
+                'portion_g' => $r['standard_portion_g'],
+                'energy_kcal' => $r['energy_kcal'],
+                'carbs_g' => $r['carbs_g'],
+                'fiber_g' => $r['fiber_g'],
+                'net_carbs_g' => round(max(0, $r['carbs_g'] - $r['fiber_g']), 1),
+                'protein_g' => $r['protein_g'],
+                'fat_g' => $r['fat_g'],
+                'sodium_mg' => $r['sodium_mg'],
+                'image_url' => $r['image_url'],
+                'data_source' => $r['data_source'],
+                'logged_at' => $at,
+            ];
+        };
+        $reading = function (float $mg, string $ctx, string $status, string $at, bool $esc = false) {
+            return [
+                'id' => 'gluc-' . bin2hex(random_bytes(4)),
+                'reading_mg_dl' => $mg,
+                'reading_mmol_l' => round($mg / 18.0182, 2),
+                'context' => $ctx,
+                'status' => $status,
+                'is_emergency_escalation' => $esc,
+                'recorded_at' => $at,
+            ];
+        };
+
+        $alex = self::getDefaultPatientProfile();
+        $grace = array_merge(self::getDefaultPatientProfile(), [
+            'id' => 'pat-002',
+            'user_id' => 'usr-pat-002',
+            'first_name' => 'Grace',
+            'last_name' => 'Okafor',
+            'age' => 61,
+            'gender' => 'female',
+            'hba1c_latest' => 8.2,
+            'medication_risk_category' => 'high_insulin',
+            'daily_energy_kcal_target' => 1600.0,
+            'approved_carb_max_per_meal' => 40.0,
+            'allergens' => ['fish'],
+            'comorbidities' => ['hypertension', 'ckd'],
+            'has_renal_restriction' => true,
+        ]);
+        $grace['assigned_clinician']['approval_status'] = 'PENDING_REVIEW';
+
+        $users = [];
+        foreach (self::getDemoUsers() as $u) {
+            $u['password_hash'] = password_hash($u['password'], PASSWORD_DEFAULT);
+            unset($u['password']);
+            $u['created_at'] = date('Y-m-d H:i:s');
+            $users[] = $u;
+        }
+
+        return [
+            'schema_version' => 2,
+            'users' => $users,
+            'recipes' => $recipes,
+            'patients' => [
+                'pat-001' => [
+                    'profile' => $alex,
+                    'glucose_readings' => [
+                        $reading(142.0, 'post_meal_2h', 'IN_TARGET', "$yesterday 14:10:00"),
+                        $reading(118.0, 'fasting', 'IN_TARGET', "$today 07:45:00"),
+                    ],
+                    'meal_logs' => [
+                        $log('rec-002', 'lunch', "$yesterday 12:40:00"),
+                        $log('rec-001', 'breakfast', "$today 08:00:00"),
+                    ],
+                    'reminders' => self::defaultReminders(),
+                    'plan_approval' => ['status' => 'APPROVED', 'by' => 'Dr. Kemi Balogun', 'at' => "$yesterday 16:00:00", 'note' => ''],
+                ],
+                'pat-002' => [
+                    'profile' => $grace,
+                    'glucose_readings' => [
+                        $reading(212.0, 'post_meal_2h', 'ELEVATED', "$yesterday 15:00:00"),
+                        $reading(64.0, 'fasting', 'HYPOGLYCEMIA', "$today 06:50:00", true),
+                    ],
+                    'meal_logs' => [
+                        $log('rec-004', 'dinner', "$yesterday 19:15:00"),
+                    ],
+                    'reminders' => self::defaultReminders(['breakfast' => '07:00', 'lunch' => '13:00', 'dinner' => '18:30']),
+                    'plan_approval' => ['status' => 'PENDING_REVIEW', 'by' => null, 'at' => null, 'note' => ''],
+                ],
+            ],
+            'audit_log' => [[
+                'id' => 'aud-seed',
+                'at' => date('Y-m-d H:i:s'),
+                'actor' => 'system',
+                'action' => 'STATE_SEEDED',
+                'detail' => 'Initial demo dataset created',
+            ]],
+        ];
+    }
+
     public static function getDefaultPatientProfile(): array
     {
         return [

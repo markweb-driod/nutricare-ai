@@ -38,3 +38,12 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Public tunnel state
+.tunnel-url
+.tunnel-pid
+
+# Backend runtime state (seeded automatically on first request)
+backend/storage/app_state.json
+backend/storage/.app_secret
+frontend/tsconfig.tsbuildinfo

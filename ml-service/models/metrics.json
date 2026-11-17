@@ -1,0 +1,50 @@
+{
+  "accuracy": 0.9583,
+  "macro_f1": 0.9388,
+  "train_samples": 4320,
+  "test_samples": 1080,
+  "validation": "GroupShuffleSplit (20% unseen patients)",
+  "classes": [
+    "eligible",
+    "not_recommended",
+    "review_required"
+  ],
+  "per_class": {
+    "eligible": {
+      "precision": 0.967,
+      "recall": 0.9841,
+      "f1-score": 0.9754,
+      "support": 565.0
+    },
+    "not_recommended": {
+      "precision": 0.9941,
+      "recall": 0.952,
+      "f1-score": 0.9726,
+      "support": 354.0
+    },
+    "review_required": {
+      "precision": 0.8554,
+      "recall": 0.882,
+      "f1-score": 0.8685,
+      "support": 161.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      556,
+      0,
+      9
+    ],
+    [
+      2,
+      337,
+      15
+    ],
+    [
+      17,
+      2,
+      142
+    ]
+  ],
+  "trained_at": "2026-11-17T10:30:16.931847+00:00"
+}

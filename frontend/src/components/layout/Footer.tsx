@@ -21,9 +21,7 @@ export default function Footer() {
             <Info className="w-3 h-3 text-[#16835D]" /> FAO/INFOODS & USDA Calibrated
           </span>
           <span className="text-emerald-900/30">•</span>
-          <a href="#" className="hover:text-[#16835D]">Privacy & Consent</a>
-          <span className="text-emerald-900/30">•</span>
-          <a href="#" className="hover:text-[#16835D]">Terms</a>
+          <span>Decision support only, not a substitute for medical advice</span>
           <span className="text-emerald-900/30">•</span>
           <span>© 2026 NutriCare AI</span>
         </div>

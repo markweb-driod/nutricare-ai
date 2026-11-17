@@ -4,6 +4,8 @@ Implements GroupShuffleSplit (Patient-separated validation) and Isotonic Calibra
 """
 
 import os
+import json
+from datetime import datetime, timezone
 import joblib
 import numpy as np
 import pandas as pd
@@ -119,6 +121,24 @@ def train_and_export_model():
 
     joblib.dump(full_pipeline, export_path)
     print(f"\nModel exported successfully to {export_path}")
+
+    # Persist real evaluation metrics so the API/admin dashboard never shows hardcoded numbers
+    labels = sorted(y.unique().tolist())
+    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+    metrics = {
+        "accuracy": round(float(acc), 4),
+        "macro_f1": round(float(f1_macro), 4),
+        "train_samples": int(len(X_train)),
+        "test_samples": int(len(X_test)),
+        "validation": "GroupShuffleSplit (20% unseen patients)",
+        "classes": labels,
+        "per_class": {k: {m: round(float(v), 4) for m, v in report[k].items()} for k in labels},
+        "confusion_matrix": confusion_matrix(y_test, y_pred, labels=labels).tolist(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with open(os.path.join(models_dir, "metrics.json"), "w", encoding="utf-8") as fh:
+        json.dump(metrics, fh, indent=2)
+    print("Metrics written to models/metrics.json")
 
     # Verify reload
     reloaded = joblib.load(export_path)

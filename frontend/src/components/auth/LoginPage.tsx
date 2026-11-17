@@ -1,333 +1,397 @@
 'use client';
 
 import React, { useState } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle, Heart, Key, Lock, Mail, ShieldAlert, Stethoscope, UserCheck } from 'lucide-react';
+import { api, ApiError } from '../../services/api';
+import type { AuthUser } from '../../types';
 import {
-  Heart,
-  Lock,
-  Mail,
-  ShieldCheck,
-  ArrowRight,
-  Sparkles,
-  UserCheck,
-  Stethoscope,
-  ShieldAlert,
-  CheckCircle,
-  Key
-} from 'lucide-react';
+  ALLERGEN_OPTIONS,
+  CATEGORY_OPTIONS,
+  COMORBIDITY_OPTIONS,
+  DIABETES_OPTIONS,
+  MEDICATION_OPTIONS,
+  label,
+} from '../../lib/format';
+import { Button, ChipToggle, ErrorState, Field, inputClass } from '../ui';
 
 interface LoginPageProps {
-  onLoginSuccess: (role: 'patient' | 'clinician' | 'admin', userEmail: string) => void;
+  onLoginSuccess: (token: string, user: AuthUser) => void;
+}
+
+const DEMO_ACCOUNTS = [
+  { role: 'Patient', email: 'alex.adeyemi@example.com', password: 'patient123', icon: UserCheck, cls: 'bg-[#16835D] hover:bg-[#123F35]' },
+  { role: 'Clinician', email: 'dr.balogun@nutricare.clinic', password: 'clinician123', icon: Stethoscope, cls: 'bg-[#123F35] hover:bg-emerald-900' },
+  { role: 'Admin', email: 'admin@nutricare.ai', password: 'admin123', icon: ShieldAlert, cls: 'bg-slate-800 hover:bg-slate-900' },
+];
+
+const STEPS = ['Account', 'About you', 'Diabetes baseline', 'Allergens & conditions', 'Food preferences', 'Meal reminders'];
+
+interface RegisterForm {
+  email: string;
+  password: string;
+  confirm: string;
+  first_name: string;
+  last_name: string;
+  age: string;
+  gender: string;
+  diabetes_type: string;
+  hba1c_latest: string;
+  medication_risk_category: string;
+  allergens: string[];
+  comorbidities: string[];
+  favorite_categories: string[];
+  breakfast: string;
+  lunch: string;
+  dinner: string;
+}
+
+const EMPTY_FORM: RegisterForm = {
+  email: '',
+  password: '',
+  confirm: '',
+  first_name: '',
+  last_name: '',
+  age: '',
+  gender: '',
+  diabetes_type: 'type_2',
+  hba1c_latest: '',
+  medication_risk_category: 'low_metformin',
+  allergens: [],
+  comorbidities: [],
+  favorite_categories: ['West African'],
+  breakfast: '07:30',
+  lunch: '12:30',
+  dinner: '19:00',
+};
+
+/** Client-side checks per wizard step (server re-validates everything). */
+function validateStep(step: number, f: RegisterForm): Record<string, string> {
+  const e: Record<string, string> = {};
+  if (step === 0) {
+    if (!/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'Enter a valid email address';
+    if (f.password.length < 8) e.password = 'At least 8 characters';
+    if (f.confirm !== f.password) e.confirm = 'Passwords do not match';
+  }
+  if (step === 1) {
+    if (!f.first_name.trim()) e.first_name = 'Required';
+    if (!f.last_name.trim()) e.last_name = 'Required';
+    const age = Number(f.age);
+    if (!f.age || !Number.isInteger(age) || age < 18 || age > 120) e.age = 'Enter an age between 18 and 120';
+    if (!f.gender) e.gender = 'Required';
+  }
+  if (step === 2) {
+    const h = Number(f.hba1c_latest);
+    if (!f.hba1c_latest || isNaN(h) || h < 3 || h > 20) e.hba1c_latest = 'Enter a value between 3 and 20';
+  }
+  return e;
 }
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
-  const [mode, setMode] = useState<'login' | 'register' | 'wizard'>('login');
-  const [email, setEmail] = useState('alex.adeyemi@example.com');
-  const [password, setPassword] = useState('••••••••••••');
-  const [accountType, setAccountType] = useState<'patient' | 'clinician' | 'admin'>('patient');
-  const [wizardStep, setWizardStep] = useState(1);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Autofill and direct login helpers
-  const autofillDemoAccount = (role: 'patient' | 'clinician' | 'admin') => {
-    if (role === 'patient') {
-      setEmail('alex.adeyemi@example.com');
-      setPassword('patient123');
-      setAccountType('patient');
-      onLoginSuccess('patient', 'alex.adeyemi@example.com');
-    } else if (role === 'clinician') {
-      setEmail('dr.balogun@nutricare.clinic');
-      setPassword('clinician123');
-      setAccountType('clinician');
-      onLoginSuccess('clinician', 'dr.balogun@nutricare.clinic');
-    } else if (role === 'admin') {
-      setEmail('admin@nutricare.ai');
-      setPassword('admin123');
-      setAccountType('admin');
-      onLoginSuccess('admin', 'admin@nutricare.ai');
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState<RegisterForm>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const set = <K extends keyof RegisterForm>(k: K, v: RegisterForm[K]) => setForm(prev => ({ ...prev, [k]: v }));
+
+  const doLogin = async (e: string, p: string, key: string) => {
+    setBusy(key);
+    setError(null);
+    try {
+      const res = await api.login(e, p);
+      onLoginSuccess(res.token, res.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign-in failed');
+      setBusy(null);
+    }
+  };
+
+  const nextStep = () => {
+    const errs = validateStep(step, form);
+    setFieldErrors(errs);
+    if (Object.keys(errs).length === 0) setStep(s => s + 1);
+  };
+
+  const submitRegistration = async () => {
+    setBusy('register');
+    setError(null);
+    try {
+      const res = await api.register({
+        email: form.email.trim(),
+        password: form.password,
+        profile: {
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          age: Number(form.age),
+          gender: form.gender,
+          diabetes_type: form.diabetes_type,
+          hba1c_latest: Number(form.hba1c_latest),
+          medication_risk_category: form.medication_risk_category,
+          allergens: form.allergens,
+          comorbidities: form.comorbidities,
+          favorite_categories: form.favorite_categories,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+        reminders: { breakfast: form.breakfast, lunch: form.lunch, dinner: form.dinner },
+      });
+      onLoginSuccess(res.token, res.user);
+    } catch (err) {
+      if (err instanceof ApiError && Object.keys(err.errors).length) {
+        setFieldErrors(err.errors);
+        const accountFields = ['email', 'password'];
+        if (Object.keys(err.errors).some(k => accountFields.includes(k))) setStep(0);
+      }
+      setError(err instanceof Error ? err.message : 'Registration failed');
+      setBusy(null);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#FAFBF8] flex flex-col justify-between">
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2">
-        {/* Left Hero Pane (Product Messaging & Fresh Visuals) */}
-        <div className="bg-gradient-to-br from-[#123F35] via-[#16835D] to-teal-900 text-white p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute -top-20 -left-20 w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none"></div>
-
-          <div className="relative z-10 space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-white text-[#16835D] flex items-center justify-center font-bold shadow-lg">
-                <Heart className="w-6 h-6 fill-current" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold font-heading">NutriCare AI</h1>
-                <p className="text-xs text-emerald-200">Diabetic Dietary Recommendation & Reminder System</p>
-              </div>
+    <div className="min-h-screen bg-[#FAFBF8] grid grid-cols-1 lg:grid-cols-2">
+      {/* Hero */}
+      <div className="bg-gradient-to-br from-[#123F35] via-[#16835D] to-teal-900 text-white p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
+        <div className="absolute -top-20 -left-20 w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white text-[#16835D] flex items-center justify-center shadow-lg">
+              <Heart className="w-6 h-6 fill-current" />
             </div>
-
-            <div className="space-y-4 max-w-lg pt-8">
-              <span className="px-3.5 py-1 rounded-full bg-emerald-400/20 text-emerald-200 border border-emerald-300/30 text-xs font-bold uppercase tracking-wider">
-                ADA 2026 Standards of Care Aligned
-              </span>
-              <h2 className="text-4xl font-extrabold font-heading leading-tight">
-                Eat thoughtfully. Stay organized.
-              </h2>
-              <p className="text-sm text-emerald-100/90 leading-relaxed">
-                Supervised Random Forest Classifier with Isotonic Calibration (95.83% accuracy) combined with a Deterministic Safety Engine for zero-tolerance allergen filtering.
-              </p>
-            </div>
-
-            {/* Live Meal Card Preview */}
-            <div className="pt-6">
-              <div className="bg-white/10 backdrop-blur-md rounded-3xl p-5 border border-white/20 shadow-2xl space-y-3 max-w-md">
-                <div className="flex items-center justify-between text-xs border-b border-white/10 pb-2">
-                  <span className="font-bold flex items-center gap-1.5 text-emerald-200">
-                    <Sparkles className="w-3.5 h-3.5" /> Next Scheduled Meal · Lunch
-                  </span>
-                  <span className="bg-emerald-400/30 px-2 py-0.5 rounded text-[10px] font-bold">96% ML Fit</span>
-                </div>
-                <h4 className="font-bold text-lg text-white">Steamed Moi Moi with Fresh Spinach & Fish</h4>
-                <div className="grid grid-cols-4 gap-2 text-center text-xs font-semibold pt-1">
-                  <div className="bg-white/10 p-2 rounded-xl">
-                    <span className="text-[10px] text-emerald-200 block">Portion</span> 250g
-                  </div>
-                  <div className="bg-white/10 p-2 rounded-xl">
-                    <span className="text-[10px] text-emerald-200 block">Net Carbs</span> 16.3g
-                  </div>
-                  <div className="bg-white/10 p-2 rounded-xl">
-                    <span className="text-[10px] text-emerald-200 block">Fiber</span> 8.2g
-                  </div>
-                  <div className="bg-white/10 p-2 rounded-xl">
-                    <span className="text-[10px] text-emerald-200 block">Calories</span> 265 kcal
-                  </div>
-                </div>
-              </div>
+            <div>
+              <h1 className="text-2xl font-bold font-heading">NutriCare AI</h1>
+              <p className="text-xs text-emerald-200">Diabetic Dietary Recommendation & Reminder System</p>
             </div>
           </div>
-
-          <div className="relative z-10 text-xs text-emerald-200/70 pt-8">
-            Calibrated against FAO/INFOODS 2019 West African Food Composition Tables and USDA FoodData Central.
+          <div className="space-y-4 max-w-lg pt-4 lg:pt-8">
+            <h2 className="text-3xl lg:text-4xl font-extrabold font-heading leading-tight">Eat thoughtfully. Stay organized.</h2>
+            <p className="text-sm text-emerald-100/90 leading-relaxed">
+              Meal suggestions ranked by a Random Forest model, screened first by a deterministic safety engine that removes allergens and
+              meals over your clinician-approved carbohydrate and sodium limits.
+            </p>
           </div>
         </div>
+        <p className="relative z-10 text-xs text-emerald-200/70 pt-8">
+          Nutrient data from FAO/INFOODS 2019 West African Food Composition Tables and USDA FoodData Central. Not a substitute for medical advice.
+        </p>
+      </div>
 
-        {/* Right Form Pane */}
-        <div className="p-8 lg:p-16 flex items-center justify-center">
-          <div className="w-full max-w-md space-y-6">
-            {/* ONE-CLICK DEMO AUTOFILL BUTTONS HEADER */}
+      {/* Form pane */}
+      <div className="p-6 sm:p-8 lg:p-16 flex items-center justify-center">
+        <div className="w-full max-w-md space-y-6">
+          {mode === 'login' && (
             <div className="bg-emerald-50 p-4 rounded-3xl border border-emerald-200 space-y-2.5">
               <span className="text-xs font-bold text-[#123F35] uppercase tracking-wider flex items-center gap-1.5">
-                <Key className="w-4 h-4 text-[#16835D]" /> One-Click Demo Account Login:
+                <Key className="w-4 h-4 text-[#16835D]" /> Demo accounts
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => autofillDemoAccount('patient')}
-                  className="py-2 px-3 rounded-xl bg-[#16835D] text-white text-xs font-bold hover:bg-[#123F35] transition-all flex items-center justify-center gap-1 shadow-xs"
-                >
-                  <UserCheck className="w-3.5 h-3.5" /> Patient Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => autofillDemoAccount('clinician')}
-                  className="py-2 px-3 rounded-xl bg-[#123F35] text-white text-xs font-bold hover:bg-emerald-900 transition-all flex items-center justify-center gap-1 shadow-xs"
-                >
-                  <Stethoscope className="w-3.5 h-3.5" /> Clinician Demo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => autofillDemoAccount('admin')}
-                  className="py-2 px-3 rounded-xl bg-slate-800 text-white text-xs font-bold hover:bg-slate-900 transition-all flex items-center justify-center gap-1 shadow-xs"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5" /> Admin Demo
-                </button>
+                {DEMO_ACCOUNTS.map(d => {
+                  const Icon = d.icon;
+                  return (
+                    <Button
+                      key={d.role}
+                      type="button"
+                      busy={busy === d.role}
+                      disabled={!!busy}
+                      onClick={() => doLogin(d.email, d.password, d.role)}
+                      className={`text-xs text-white ${d.cls}`}
+                    >
+                      <Icon className="w-3.5 h-3.5" /> {d.role}
+                    </Button>
+                  );
+                })}
               </div>
             </div>
+          )}
 
-            {/* Mode Switcher */}
-            <div className="flex rounded-2xl bg-emerald-50 p-1 border border-emerald-100">
+          <div className="flex rounded-2xl bg-emerald-50 p-1 border border-emerald-100" role="tablist">
+            {(['login', 'register'] as const).map(m => (
               <button
-                onClick={() => setMode('login')}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-                  mode === 'login' ? 'bg-[#16835D] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => setMode('register')}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-                  mode === 'register' ? 'bg-[#16835D] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                Register
-              </button>
-              <button
-                onClick={() => setMode('wizard')}
-                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
-                  mode === 'wizard' ? 'bg-[#16835D] text-white shadow-xs' : 'text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                6-Step Wizard
-              </button>
-            </div>
-
-            {/* LOGIN FORM */}
-            {mode === 'login' && (
-              <form
-                className="space-y-4"
-                onSubmit={e => {
-                  e.preventDefault();
-                  onLoginSuccess(accountType, email);
+                key={m}
+                role="tab"
+                aria-selected={mode === m}
+                onClick={() => {
+                  setMode(m);
+                  setError(null);
+                  setFieldErrors({});
                 }}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
+                  mode === m ? 'bg-[#16835D] text-white shadow-sm' : 'text-emerald-900 hover:bg-emerald-100'
+                }`}
               >
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-bold text-[#123F35] font-heading">Sign In to NutriCare AI</h3>
-                  <p className="text-xs text-emerald-900/70">Enter your credentials or click a demo account above</p>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-bold text-emerald-900 uppercase">Email Address</label>
-                    <div className="relative mt-1">
-                      <Mail className="w-4 h-4 absolute left-3.5 top-3.5 text-emerald-900/40" />
-                      <input
-                        type="email"
-                        value={email}
-                        onChange={e => setEmail(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-emerald-900/20 text-sm focus:ring-2 focus:ring-[#16835D] focus:outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-emerald-900 uppercase">Password</label>
-                    <div className="relative mt-1">
-                      <Lock className="w-4 h-4 absolute left-3.5 top-3.5 text-emerald-900/40" />
-                      <input
-                        type="password"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-emerald-900/20 text-sm focus:ring-2 focus:ring-[#16835D] focus:outline-hidden"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-emerald-900 uppercase">Portal Persona</label>
-                    <select
-                      value={accountType}
-                      onChange={e => setAccountType(e.target.value as any)}
-                      className="w-full mt-1 px-4 py-2.5 rounded-xl border border-emerald-900/20 text-sm font-semibold text-[#123F35] bg-white"
-                    >
-                      <option value="patient">Patient Portal (Alex Adeyemi)</option>
-                      <option value="clinician">Clinician Portal (Dr. Kemi Balogun)</option>
-                      <option value="admin">Admin / ML Ops Portal</option>
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-[#16835D] text-white text-sm font-bold hover:bg-[#123F35] transition-all shadow-md flex items-center justify-center gap-2"
-                >
-                  Sign In to Workspace <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
-            )}
-
-            {/* REGISTER FORM */}
-            {mode === 'register' && (
-              <form
-                className="space-y-4"
-                onSubmit={e => {
-                  e.preventDefault();
-                  setMode('wizard');
-                }}
-              >
-                <div className="space-y-1">
-                  <h3 className="text-2xl font-bold text-[#123F35] font-heading">Register Account</h3>
-                  <p className="text-xs text-emerald-900/70">Create a personalized diabetic dietary profile</p>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-bold text-emerald-900 uppercase">Full Name</label>
-                    <input
-                      type="text"
-                      placeholder="Alex Adeyemi"
-                      className="w-full mt-1 px-4 py-2.5 rounded-xl border border-emerald-900/20 text-sm focus:ring-2 focus:ring-[#16835D] focus:outline-hidden"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-emerald-900 uppercase">Email Address</label>
-                    <input
-                      type="email"
-                      placeholder="alex@example.com"
-                      className="w-full mt-1 px-4 py-2.5 rounded-xl border border-emerald-900/20 text-sm focus:ring-2 focus:ring-[#16835D] focus:outline-hidden"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-[#16835D] text-white text-sm font-bold hover:bg-[#123F35] transition-all shadow-md flex items-center justify-center gap-2"
-                >
-                  Start 6-Step Clinical Intake <ArrowRight className="w-4 h-4" />
-                </button>
-              </form>
-            )}
-
-            {/* 6-STEP INTAKE WIZARD */}
-            {mode === 'wizard' && (
-              <div className="space-y-4 bg-white p-6 rounded-3xl border border-emerald-900/10 shadow-sm">
-                <div className="flex items-center justify-between border-b border-emerald-900/10 pb-3">
-                  <div>
-                    <span className="text-xs font-bold text-[#16835D]">Step {wizardStep} of 6</span>
-                    <h4 className="font-bold text-[#123F35]">
-                      {wizardStep === 1 && '1. Basic Demographics'}
-                      {wizardStep === 2 && '2. Diabetes Baseline'}
-                      {wizardStep === 3 && '3. Food Allergens'}
-                      {wizardStep === 4 && '4. Culture & Staples'}
-                      {wizardStep === 5 && '5. Clinician Targets'}
-                      {wizardStep === 6 && '6. Reminder Schedule'}
-                    </h4>
-                  </div>
-                </div>
-
-                <div className="text-xs space-y-2 py-2">
-                  {wizardStep === 1 && <p>Demographics: Age 52, Gender Male, Timezone Africa/Lagos.</p>}
-                  {wizardStep === 2 && <p>Clinical Status: Type 2 Diabetes, Metformin therapy, HbA1c 6.9%.</p>}
-                  {wizardStep === 3 && <p className="text-red-700 font-bold">Exclusion Registry: Tree Nuts (Walnuts, Cashews).</p>}
-                  {wizardStep >= 4 && <p>Dietary Culture: West African indigenous staples (Moi moi, brown beans, okra soup).</p>}
-                </div>
-
-                <div className="flex justify-between pt-2">
-                  <button
-                    disabled={wizardStep === 1}
-                    onClick={() => setWizardStep(prev => prev - 1)}
-                    className="px-3 py-1.5 rounded-lg border text-xs font-bold disabled:opacity-40"
-                  >
-                    Back
-                  </button>
-                  {wizardStep < 6 ? (
-                    <button
-                      onClick={() => setWizardStep(prev => prev + 1)}
-                      className="px-4 py-1.5 rounded-lg bg-[#16835D] text-white text-xs font-bold"
-                    >
-                      Next Step
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => onLoginSuccess('patient', 'alex.adeyemi@example.com')}
-                      className="px-4 py-1.5 rounded-lg bg-[#123F35] text-white text-xs font-bold flex items-center gap-1"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Complete & Open Portal
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+                {m === 'login' ? 'Sign in' : 'Create patient account'}
+              </button>
+            ))}
           </div>
+
+          {error && <ErrorState message={error} />}
+
+          {mode === 'login' && (
+            <form
+              className="space-y-4"
+              onSubmit={e => {
+                e.preventDefault();
+                doLogin(email.trim(), password, 'form');
+              }}
+            >
+              <div>
+                <h3 className="text-2xl font-bold text-[#123F35] font-heading">Sign in</h3>
+                <p className="text-xs text-emerald-900/70">Your workspace opens based on your account role.</p>
+              </div>
+              <Field label="Email address">
+                <div className="relative">
+                  <Mail className="w-4 h-4 absolute left-3.5 top-4 text-emerald-900/40" />
+                  <input type="email" required autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} className={`${inputClass} pl-10`} />
+                </div>
+              </Field>
+              <Field label="Password">
+                <div className="relative">
+                  <Lock className="w-4 h-4 absolute left-3.5 top-4 text-emerald-900/40" />
+                  <input
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className={`${inputClass} pl-10`}
+                  />
+                </div>
+              </Field>
+              <Button type="submit" busy={busy === 'form'} disabled={!!busy} className="w-full py-3">
+                Sign in <ArrowRight className="w-4 h-4" />
+              </Button>
+            </form>
+          )}
+
+          {mode === 'register' && (
+            <div className="space-y-4 bg-white p-6 rounded-3xl border border-emerald-900/10 shadow-sm">
+              <div className="border-b border-emerald-900/10 pb-3">
+                <span className="text-xs font-bold text-[#16835D]">
+                  Step {step + 1} of {STEPS.length}
+                </span>
+                <h4 className="font-bold text-[#123F35]">{STEPS[step]}</h4>
+                <div className="flex gap-1 mt-2">
+                  {STEPS.map((_, i) => (
+                    <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? 'bg-[#16835D]' : 'bg-emerald-100'}`} />
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {step === 0 && (
+                  <>
+                    <Field label="Email address" error={fieldErrors.email}>
+                      <input type="email" autoComplete="email" value={form.email} onChange={e => set('email', e.target.value)} className={inputClass} />
+                    </Field>
+                    <Field label="Password" error={fieldErrors.password} hint="At least 8 characters">
+                      <input type="password" autoComplete="new-password" value={form.password} onChange={e => set('password', e.target.value)} className={inputClass} />
+                    </Field>
+                    <Field label="Confirm password" error={fieldErrors.confirm}>
+                      <input type="password" autoComplete="new-password" value={form.confirm} onChange={e => set('confirm', e.target.value)} className={inputClass} />
+                    </Field>
+                  </>
+                )}
+                {step === 1 && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="First name" error={fieldErrors.first_name}>
+                        <input value={form.first_name} onChange={e => set('first_name', e.target.value)} className={inputClass} />
+                      </Field>
+                      <Field label="Last name" error={fieldErrors.last_name}>
+                        <input value={form.last_name} onChange={e => set('last_name', e.target.value)} className={inputClass} />
+                      </Field>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Age" error={fieldErrors.age}>
+                        <input type="number" min={18} max={120} value={form.age} onChange={e => set('age', e.target.value)} className={inputClass} />
+                      </Field>
+                      <Field label="Gender" error={fieldErrors.gender}>
+                        <select value={form.gender} onChange={e => set('gender', e.target.value)} className={inputClass}>
+                          <option value="">Select…</option>
+                          {['female', 'male', 'other'].map(g => (
+                            <option key={g} value={g}>
+                              {label(g)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                  </>
+                )}
+                {step === 2 && (
+                  <>
+                    <Field label="Diabetes type" error={fieldErrors.diabetes_type}>
+                      <select value={form.diabetes_type} onChange={e => set('diabetes_type', e.target.value)} className={inputClass}>
+                        {DIABETES_OPTIONS.map(o => (
+                          <option key={o} value={o}>
+                            {label(o)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Latest HbA1c (%)" error={fieldErrors.hba1c_latest}>
+                      <input type="number" step="0.1" value={form.hba1c_latest} onChange={e => set('hba1c_latest', e.target.value)} className={inputClass} />
+                    </Field>
+                    <Field label="Main glucose-lowering medication" error={fieldErrors.medication_risk_category}>
+                      <select value={form.medication_risk_category} onChange={e => set('medication_risk_category', e.target.value)} className={inputClass}>
+                        {MEDICATION_OPTIONS.map(o => (
+                          <option key={o} value={o}>
+                            {label(o)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </>
+                )}
+                {step === 3 && (
+                  <>
+                    <Field label="Food allergens" hint="Meals containing these are always excluded.">
+                      <ChipToggle options={ALLERGEN_OPTIONS} value={form.allergens} onChange={v => set('allergens', v)} format={label} />
+                    </Field>
+                    <Field label="Other conditions" hint="Hypertension or kidney disease lowers your sodium limit.">
+                      <ChipToggle options={COMORBIDITY_OPTIONS} value={form.comorbidities} onChange={v => set('comorbidities', v)} format={label} />
+                    </Field>
+                  </>
+                )}
+                {step === 4 && (
+                  <Field label="Preferred cuisines" hint="Preferred cuisines rank higher in your recommendations.">
+                    <ChipToggle options={CATEGORY_OPTIONS} value={form.favorite_categories} onChange={v => set('favorite_categories', v)} format={s => s} />
+                  </Field>
+                )}
+                {step === 5 && (
+                  <>
+                    <p className="text-xs text-emerald-900/70">
+                      Your calorie and carbohydrate targets start at standard defaults (1800 kcal, 45 g carbs per meal) until your clinician reviews them.
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {(['breakfast', 'lunch', 'dinner'] as const).map(m => (
+                        <Field key={m} label={label(m)} error={fieldErrors[m]}>
+                          <input type="time" value={form[m]} onChange={e => set(m, e.target.value)} className={inputClass} />
+                        </Field>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <Button variant="secondary" disabled={step === 0 || !!busy} onClick={() => setStep(s => s - 1)}>
+                  <ArrowLeft className="w-4 h-4" /> Back
+                </Button>
+                {step < STEPS.length - 1 ? (
+                  <Button onClick={nextStep}>
+                    Next <ArrowRight className="w-4 h-4" />
+                  </Button>
+                ) : (
+                  <Button busy={busy === 'register'} onClick={submitRegistration}>
+                    <CheckCircle className="w-4 h-4" /> Create account
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -16,4 +16,12 @@ Stop-PortListener 8000
 Stop-PortListener 8080
 Stop-PortListener 3000
 
+$pidFile = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '.tunnel-pid'
+if (Test-Path $pidFile) {
+    $tunnelPid = Get-Content $pidFile
+    Write-Host "Stopping public tunnel (PID $tunnelPid)..." -ForegroundColor Gray
+    Stop-Process -Id $tunnelPid -Force -ErrorAction SilentlyContinue
+    Remove-Item $pidFile, (Join-Path (Split-Path $pidFile) '.tunnel-url') -ErrorAction SilentlyContinue
+}
+
 Write-Host "[DONE] All NutriCare AI services on ports 8000, 8080, and 3000 stopped." -ForegroundColor Green

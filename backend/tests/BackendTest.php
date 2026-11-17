@@ -91,4 +91,34 @@ if ($recs['status'] === 'success' && count($recs['recommendations']) > 0) {
     exit(1);
 }
 
-echo "\nALL 5 BACKEND INTEGRATION & CLINICAL SAFETY TESTS PASSED SUCCESSFULLY!\n";
+// TEST 6: Signed auth tokens
+require_once __DIR__ . '/../app/Support/Auth.php';
+$secret = 'test-secret';
+$token = \App\Support\Auth::issue(['id' => 'usr-1', 'role' => 'patient'], $secret);
+$claims = \App\Support\Auth::verify($token, $secret);
+$tampered = \App\Support\Auth::verify($token . 'x', $secret);
+$wrongKey = \App\Support\Auth::verify($token, 'other-secret');
+echo "6. Auth Token Signing Test: ";
+if (($claims['sub'] ?? null) === 'usr-1' && $tampered === null && $wrongKey === null) {
+    echo "PASSED (valid token accepted, tampered/foreign tokens rejected)\n";
+} else {
+    echo "FAILED: token verification incorrect\n";
+    exit(1);
+}
+
+// TEST 7: Seeded state has hashed demo passwords and per-patient records
+$seed = SeedData::buildInitialState();
+$alex = null;
+foreach ($seed['users'] as $u) {
+    if ($u['email'] === 'alex.adeyemi@example.com') $alex = $u;
+}
+echo "7. Seed State Test: ";
+if ($alex && !isset($alex['password']) && password_verify('patient123', $alex['password_hash'])
+    && !password_verify('wrong', $alex['password_hash']) && isset($seed['patients'][$alex['patient_id']])) {
+    echo "PASSED (passwords hashed, patient records linked)\n";
+} else {
+    echo "FAILED: seed state invalid\n";
+    exit(1);
+}
+
+echo "\nALL 7 BACKEND INTEGRATION & CLINICAL SAFETY TESTS PASSED SUCCESSFULLY!\n";
