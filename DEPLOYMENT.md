@@ -72,7 +72,9 @@ New patients can sign up with **Create patient account** (a 6-step intake). Thei
 
 **Data storage:** state is kept in `backend/storage/app_state.json` (git-ignored). It is created from seed data on the first request. To reset the demo data, stop the services, delete that file, and start again.
 
-**Sharing publicly:** `.\tunnel.ps1` starts the stack if needed and prints a temporary public HTTPS URL (Cloudflare quick tunnel). The PHP API is proxied through Next.js at `/api/v1`, so one URL serves the whole app.
+**Sharing publicly:** `.\tunnel.ps1` starts the stack if needed, replaces any previous tunnel, and prints a temporary public HTTPS URL (Cloudflare quick tunnel). The PHP API is proxied through Next.js at `/api/v1`, so one URL serves the whole app.
+
+**Vercel:** the frontend is deployed to Vercel (https://nutricare-ai-psi.vercel.app) and forwards `/api/v1` to `BACKEND_URL`, which points at this PC's tunnel. When the repo is linked to Vercel (`.vercel/` exists), `tunnel.ps1` also updates `BACKEND_URL` and redeploys production whenever the tunnel URL changes. Use `.\tunnel.ps1 -NoVercel` to skip that. The Vercel site only works while this PC, the services and the tunnel are running. **If sign-in shows a 502, run `.\tunnel.ps1` again.**
 
 ---
 
