@@ -140,6 +140,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       });
       onLoginSuccess(res.token, res.user);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Email already registered: send the user back to the account step to change it.
+        setFieldErrors({ email: 'This email is already registered. Sign in instead, or use another email.' });
+        setStep(0);
+        setError(null);
+        setBusy(null);
+        return;
+      }
       if (err instanceof ApiError && Object.keys(err.errors).length) {
         setFieldErrors(err.errors);
         const accountFields = ['email', 'password'];
