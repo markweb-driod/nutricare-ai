@@ -10,12 +10,19 @@
 #   .\tunnel.ps1                 # Cloudflare quick tunnel + Vercel sync
 #   .\tunnel.ps1 -NoVercel       # tunnel only, leave Vercel untouched
 #   .\tunnel.ps1 -Provider ngrok # ngrok (needs `ngrok config add-authtoken`)
+#   .\tunnel.ps1 -Detach         # run everything independent of this shell
+#
+# -Detach starts the stack through WMI so the services and tunnel are not
+# children of the current shell. Use it when launching from a tool, IDE or
+# agent shell whose process tree (Windows job object) may be killed when that
+# shell closes or restarts - otherwise the site goes down with it (502s).
 # =======================================================================
 param(
     [ValidateSet('cloudflared', 'ngrok')]
     [string]$Provider = 'cloudflared',
     [int]$Port = 3000,
-    [switch]$NoVercel
+    [switch]$NoVercel,
+    [switch]$Detach
 )
 
 $ErrorActionPreference = 'Continue'
@@ -23,6 +30,30 @@ $rootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $urlFile = Join-Path $rootDir '.tunnel-url'
 $pidFile = Join-Path $rootDir '.tunnel-pid'
 $syncedFile = Join-Path $rootDir '.tunnel-vercel-url'
+
+if ($Detach) {
+    $detachLog = Join-Path $env:TEMP 'nutricare-detached.log'
+    Remove-Item $detachLog -ErrorAction SilentlyContinue
+    $flags = "-Provider $Provider -Port $Port" + $(if ($NoVercel) { ' -NoVercel' } else { '' })
+    $cmd = "cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" $flags > `"$detachLog`" 2>&1"
+    $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $rootDir }
+    if ($r.ReturnValue -ne 0) {
+        Write-Host "[ERROR] Could not start detached process (WMI code $($r.ReturnValue))" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Started detached (PID $($r.ProcessId)). Full log: $detachLog" -ForegroundColor Cyan
+    Write-Host "Waiting for services, tunnel and Vercel sync (can take a few minutes)..." -ForegroundColor DarkGray
+    $done = 'VERCEL URL|nothing to redeploy|skipping Vercel sync|\[ERROR\]'
+    for ($i = 0; $i -lt 120; $i++) {
+        Start-Sleep -Seconds 3
+        if ((Test-Path $detachLog) -and (Select-String -Path $detachLog -Pattern $done -Quiet)) { break }
+        if (-not (Get-Process -Id $r.ProcessId -ErrorAction SilentlyContinue)) { break }
+    }
+    if (Test-Path $detachLog) {
+        Select-String -Path $detachLog -Pattern 'PUBLIC URL|VERCEL URL|nothing to redeploy|skipping|\[ERROR\]|\[WARN\]' | ForEach-Object { Write-Host "  $($_.Line.Trim())" }
+    }
+    exit 0
+}
 
 function Test-Url($url, $timeout = 2) {
     try { (Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $timeout).StatusCode -eq 200 } catch { $false }
@@ -139,7 +170,7 @@ try {
 
     if ($ok) {
         $out = cmd /c "vercel deploy --prod --yes 2>&1"
-        $prodLine = $out | Select-String 'Production URL: (https://\S+?)"?,?$' | Select-Object -Last 1
+        $prodLine = $out | Select-String 'Production URL: (https://[^"\s,]+)' | Select-Object -Last 1
         if ($LASTEXITCODE -eq 0) {
             Set-Content -Path $syncedFile -Value $publicUrl
             $prod = if ($prodLine) { $prodLine.Matches[0].Groups[1].Value } else { '(see Vercel dashboard)' }
