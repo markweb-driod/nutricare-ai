@@ -78,6 +78,16 @@ New patients can sign up with **Create patient account** (a 6-step intake). Thei
 
 Use `-Detach` when starting from an IDE terminal, agent or automation shell. Those shells can run commands inside a Windows job object that kills every child process when the shell closes or restarts, which takes the site down. `-Detach` launches the stack through WMI so it keeps running independently. A normal PowerShell window works without it. A 530 for a minute or two right after a restart is expected while Vercel redeploys onto the new tunnel.
 
+**Watchdog (auto-recovery):** when this PC sleeps, Cloudflare drops the quick tunnel and it never comes back by itself. The `NutriCare Watchdog` scheduled task checks the live API every 5 minutes, 1 minute after the PC wakes, and at sign-in. If the API isn't answering, it runs `stop.ps1` then `tunnel.ps1 -Detach`, which also re-points Vercel. It skips the check when there's no internet and waits at least 10 minutes between repairs. Recovery takes about 2 minutes.
+
+```powershell
+.\install-watchdog.ps1              # install / update the task (current user, no admin)
+.\install-watchdog.ps1 -Uninstall   # remove it
+.\watchdog.ps1 -Force               # repair now, by hand
+```
+
+Log: `%TEMP%\nutricare-watchdog.log`. The site is still down while the PC is asleep or off. To avoid that, set Windows sleep to *Never* when plugged in, or host the backend on an always-on server.
+
 ---
 
 ## 🧪 Verification & Health Check Endpoints
